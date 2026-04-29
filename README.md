@@ -47,10 +47,10 @@ data/   sample.pdf
 ## Deploy
 
 `render.yaml` ships a two-service Render blueprint (API + UI, both free tier).
-See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the step-by-step.
+The instructions are in `SUBMISSION.pdf`.
 
-## Read more
+## Submission docs
 
-- [`TECHNICAL_NOTE.md`](TECHNICAL_NOTE.md) — architecture, decisions, trade-offs
-- [`TEST_INSTRUCTIONS.md`](TEST_INSTRUCTIONS.md) — what to try, eval reproduction
-- [`DEPLOYMENT.md`](DEPLOYMENT.md) — Render deploy in 5 steps
+- [`SUBMISSION.pdf`](SUBMISSION.pdf) — problem, architecture, eval, future work
+- [`TECHNICAL_NOTE.pdf`](TECHNICAL_NOTE.pdf) — architecture, decisions, trade-offs
+- [`TEST_INSTRUCTIONS.pdf`](TEST_INSTRUCTIONS.pdf) — what to try, eval reproduction
