@@ -14,3 +14,6 @@ ui:
 
 eval:
 	uv run python -m evals.run_eval
+
+ragas:
+	uv run python -m evals.ragas_eval

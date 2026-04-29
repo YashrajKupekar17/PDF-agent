@@ -296,6 +296,13 @@ GRAPH = build_graph()
 
 
 def ask(query: str, doc_id: str, session_id: str = "default") -> AgentAnswer:
+    return ask_with_hits(query, doc_id, session_id)[0]
+
+
+def ask_with_hits(
+    query: str, doc_id: str, session_id: str = "default"
+) -> tuple[AgentAnswer, list[Hit]]:
+    """Like `ask` but also returns the retrieved hits used to ground the answer."""
     state = {
         "query": query,
         "rewritten_query": "",
@@ -305,7 +312,7 @@ def ask(query: str, doc_id: str, session_id: str = "default") -> AgentAnswer:
         "messages": [{"role": "user", "content": query}],
     }
     result = GRAPH.invoke(state, config={"configurable": {"thread_id": session_id}})
-    return result["answer"]
+    return result["answer"], result.get("hits", []) or []
 
 
 if __name__ == "__main__":
