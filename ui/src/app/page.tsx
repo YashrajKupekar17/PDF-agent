@@ -11,16 +11,16 @@ import {
   API_URL,
   chatStream,
   getPdfInfo,
+  getStudio,
   pdfRawUrl,
   uploadPdf,
 } from "@/lib/api";
-import type { ChatMessage as Msg } from "@/lib/types";
-
-const SUGGESTIONS = [
-  "What are the submission deliverables?",
-  "How is the visual story output evaluated?",
-  "Is multilingual support rewarded?",
-];
+import {
+  clearSession,
+  loadSession,
+  saveSession,
+} from "@/lib/storage";
+import type { ChatMessage as Msg, Studio } from "@/lib/types";
 
 export default function Home() {
   const [docId, setDocId] = useState<string | null>(null);
@@ -32,7 +32,45 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [highlights, setHighlights] = useState<string[]>([]);
+  const [studio, setStudio] = useState<Studio | null>(null);
+  const [studioLoading, setStudioLoading] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate from localStorage on mount.
+  useEffect(() => {
+    const s = loadSession();
+    if (s && s.docId) {
+      setDocId(s.docId);
+      setFilename(s.filename);
+      setNPages(s.nPages);
+      setMessages(s.messages || []);
+      setSessionId(s.sessionId || crypto.randomUUID());
+      setStudio(s.studio ?? null);
+      setPage(s.page || 1);
+    }
+    setHydrated(true);
+  }, []);
+
+  // Persist on relevant state changes (after hydration so we don't blow over fresh load).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!docId || !filename) {
+      clearSession();
+      return;
+    }
+    saveSession({
+      docId,
+      filename,
+      nPages,
+      messages,
+      sessionId,
+      studio,
+      page,
+      updatedAt: Date.now(),
+    });
+  }, [hydrated, docId, filename, nPages, messages, sessionId, studio, page]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -48,30 +86,65 @@ export default function Home() {
     setNPages(info.n_pages);
     setPage(1);
     setMessages([]);
+    setStudio(null);
     setSessionId(crypto.randomUUID());
+    setStudioLoading(true);
+    getStudio(res.doc_id)
+      .then((s) => setStudio(s))
+      .catch(() => {})
+      .finally(() => setStudioLoading(false));
   };
 
   const handleSubmit = async (q: string) => {
     if (!docId) return;
     setError(null);
     const userMsg: Msg = { role: "user", content: q, ts: Date.now() };
-    setMessages((m) => [...m, userMsg]);
+    // push the user msg + a placeholder streaming assistant msg
+    const placeholder: Msg = {
+      role: "assistant",
+      ts: Date.now(),
+      content: "",
+      citations: [],
+      refused: false,
+    };
+    setMessages((m) => [...m, userMsg, placeholder]);
     setBusy(true);
     setStage("Starting…");
     try {
       await chatStream(q, docId, sessionId, {
         onStage: (label) => setStage(label),
+        onPartialAnswer: (partial) => {
+          // update last assistant msg's content as tokens stream in
+          setMessages((m) => {
+            const out = m.slice();
+            const last = out[out.length - 1];
+            if (last && last.role === "assistant") {
+              out[out.length - 1] = { ...last, content: partial };
+            }
+            return out;
+          });
+        },
         onAnswer: (ans) => {
-          const assistant: Msg = {
-            role: "assistant",
-            ts: Date.now(),
-            content: ans.refused ? (ans.refusal_reason ?? "") : ans.answer,
-            citations: ans.citations ?? [],
-            refused: ans.refused,
-          };
-          setMessages((m) => [...m, assistant]);
+          // settle final verified answer, replace the streaming placeholder
+          setMessages((m) => {
+            const out = m.slice();
+            const last = out[out.length - 1];
+            if (last && last.role === "assistant") {
+              out[out.length - 1] = {
+                role: "assistant",
+                ts: last.ts,
+                content: ans.refused ? (ans.refusal_reason ?? "") : ans.answer,
+                citations: ans.citations ?? [],
+                refused: ans.refused,
+              };
+            }
+            return out;
+          });
           if (!ans.refused && ans.citations?.length > 0) {
             setPage(ans.citations[0].page);
+            setHighlights(ans.citations.map((c) => c.quote));
+          } else {
+            setHighlights([]);
           }
         },
         onError: (msg) => setError(msg),
@@ -86,6 +159,7 @@ export default function Home() {
 
   const newConversation = () => {
     setMessages([]);
+    setHighlights([]);
     setSessionId(crypto.randomUUID());
   };
 
@@ -114,33 +188,88 @@ export default function Home() {
             url={pdfRawUrl(docId)}
             page={page}
             onPageChange={setPage}
+            highlights={highlights}
           />
         </section>
         <section className="flex flex-1 flex-col min-w-0">
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
             {messages.length === 0 && (
-              <div className="flex h-full items-center justify-center">
-                <div className="max-w-md text-center">
-                  <h3 className="text-lg font-semibold tracking-tight">
-                    Ask anything about{" "}
-                    <span className="text-blue-600 dark:text-blue-400">{filename}</span>
-                  </h3>
-                  <p className="mt-1.5 text-sm text-zinc-500">
-                    Every answer cites the exact page and a verbatim quote. Out-of-scope queries are refused.
-                  </p>
+              <div className="flex h-full items-start justify-center pt-6">
+                <div className="max-w-xl w-full space-y-5">
+                  <div>
+                    <h3 className="text-lg font-semibold tracking-tight">
+                      About{" "}
+                      <span className="text-blue-600 dark:text-blue-400">
+                        {filename}
+                      </span>
+                    </h3>
+                    {studioLoading ? (
+                      <div className="mt-3 space-y-2 animate-pulse">
+                        <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-full" />
+                        <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-5/6" />
+                      </div>
+                    ) : studio ? (
+                      <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                        {studio.overview}
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-sm text-zinc-500">
+                        Every answer cites the exact page and a verbatim quote.
+                        Out-of-scope queries are refused.
+                      </p>
+                    )}
+                  </div>
+                  {studio && studio.suggested_questions.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400 mb-2">
+                        Try asking
+                      </p>
+                      <div className="flex flex-col gap-1.5">
+                        {studio.suggested_questions.map((q, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handleSubmit(q)}
+                            disabled={busy}
+                            className="text-left text-sm rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
-            {messages.map((m, i) => (
-              <ChatMessage key={i} message={m} onCitationClick={setPage} />
-            ))}
-            {busy && (
-              <div className="flex justify-start">
-                <div className="rounded-2xl bg-zinc-100 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500">
-                  <StageDots label={stage ?? "Working…"} />
-                </div>
-              </div>
-            )}
+            {messages.map((m, i) => {
+              const isStreaming =
+                busy &&
+                i === messages.length - 1 &&
+                m.role === "assistant" &&
+                m.content.length > 0;
+              const isWaiting =
+                busy &&
+                i === messages.length - 1 &&
+                m.role === "assistant" &&
+                m.content.length === 0;
+              if (isWaiting) {
+                return (
+                  <div key={i} className="flex justify-start">
+                    <div className="rounded-2xl bg-zinc-100 dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-500">
+                      <StageDots label={stage ?? "Working…"} />
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <ChatMessage
+                  key={i}
+                  message={m}
+                  onCitationClick={setPage}
+                  streaming={isStreaming}
+                />
+              );
+            })}
             {error && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
                 {error}
@@ -148,11 +277,7 @@ export default function Home() {
             )}
           </div>
           <div className="border-t border-zinc-200 dark:border-zinc-800 px-6 py-4 bg-white dark:bg-zinc-950">
-            <ChatComposer
-              onSubmit={handleSubmit}
-              busy={busy}
-              suggestions={messages.length === 0 ? SUGGESTIONS : undefined}
-            />
+            <ChatComposer onSubmit={handleSubmit} busy={busy} />
             <p className="mt-2 text-[11px] text-zinc-400 dark:text-zinc-600 tabular-nums">
               {API_URL} · session {sessionId.slice(0, 8)}
             </p>

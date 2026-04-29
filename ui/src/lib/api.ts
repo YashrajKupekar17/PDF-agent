@@ -1,4 +1,4 @@
-import type { AgentAnswer, PdfInfo, UploadResponse } from "./types";
+import type { AgentAnswer, PdfInfo, Studio, UploadResponse } from "./types";
 
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -14,6 +14,12 @@ export async function uploadPdf(file: File): Promise<UploadResponse> {
 export async function getPdfInfo(docId: string): Promise<PdfInfo> {
   const r = await fetch(`${API_URL}/pdf/${docId}/info`);
   if (!r.ok) throw new Error(`Info failed: ${r.status}`);
+  return r.json();
+}
+
+export async function getStudio(docId: string): Promise<Studio> {
+  const r = await fetch(`${API_URL}/studio/${docId}`);
+  if (!r.ok) throw new Error(`Studio failed: ${r.status}`);
   return r.json();
 }
 
@@ -38,6 +44,7 @@ export async function chat(
 
 type StreamCallbacks = {
   onStage?: (label: string) => void;
+  onPartialAnswer?: (partial: string) => void;
   onAnswer?: (answer: AgentAnswer) => void;
   onError?: (message: string) => void;
 };
@@ -48,6 +55,7 @@ export async function chatStream(
   sessionId: string,
   cb: StreamCallbacks
 ): Promise<void> {
+  const { parse: parsePartial } = await import("partial-json");
   const r = await fetch(`${API_URL}/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -59,6 +67,8 @@ export async function chatStream(
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let accumulatedArgs = "";
+  let lastPartialAnswer = "";
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -72,9 +82,27 @@ export async function chatStream(
       if (raw === "[DONE]") return;
       try {
         const ev = JSON.parse(raw);
-        if (ev.type === "stage") cb.onStage?.(ev.label);
-        else if (ev.type === "answer") cb.onAnswer?.(ev.answer);
-        else if (ev.type === "error") cb.onError?.(ev.message);
+        if (ev.type === "stage") {
+          cb.onStage?.(ev.label);
+        } else if (ev.type === "args_delta") {
+          accumulatedArgs += ev.delta as string;
+          try {
+            const parsed = parsePartial(accumulatedArgs) as
+              | { answer?: string }
+              | undefined;
+            const a = parsed?.answer;
+            if (typeof a === "string" && a !== lastPartialAnswer) {
+              lastPartialAnswer = a;
+              cb.onPartialAnswer?.(a);
+            }
+          } catch {
+            // partial JSON not yet valid — wait for more deltas
+          }
+        } else if (ev.type === "answer") {
+          cb.onAnswer?.(ev.answer);
+        } else if (ev.type === "error") {
+          cb.onError?.(ev.message);
+        }
       } catch {
         // ignore malformed line
       }

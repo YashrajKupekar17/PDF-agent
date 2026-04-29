@@ -10,9 +10,10 @@ import { cn } from "@/lib/utils";
 type Props = {
   message: Msg;
   onCitationClick: (page: number) => void;
+  streaming?: boolean;
 };
 
-export function ChatMessage({ message, onCitationClick }: Props) {
+export function ChatMessage({ message, onCitationClick, streaming = false }: Props) {
   const isUser = message.role === "user";
   const isRefused = !isUser && message.refused;
   const [showSources, setShowSources] = useState(false);
@@ -42,6 +43,12 @@ export function ChatMessage({ message, onCitationClick }: Props) {
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {message.content}
             </ReactMarkdown>
+            {streaming && (
+              <span
+                className="inline-block w-1.5 h-4 bg-zinc-500 align-middle animate-pulse ml-0.5"
+                aria-hidden
+              />
+            )}
           </div>
         )}
 

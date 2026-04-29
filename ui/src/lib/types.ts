@@ -21,6 +21,11 @@ export type PdfInfo = {
   n_pages: number;
 };
 
+export type Studio = {
+  overview: string;
+  suggested_questions: string[];
+};
+
 export type ChatMessage =
   | { role: "user"; content: string; ts: number }
   | {

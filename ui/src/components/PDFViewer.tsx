@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -14,9 +14,30 @@ type Props = {
   url: string;
   page: number;
   onPageChange: (page: number) => void;
+  highlights?: string[];
 };
 
-export function PDFViewer({ url, page, onPageChange }: Props) {
+const _normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+
+function _escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _shouldHighlight(itemText: string, normalizedQuotes: string[]): boolean {
+  const item = _normalize(itemText);
+  if (item.length < 3) return false;
+  for (const q of normalizedQuotes) {
+    if (q.length < 5) continue;
+    if (q.includes(item)) return true;
+  }
+  return false;
+}
+
+export function PDFViewer({ url, page, onPageChange, highlights = [] }: Props) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [width, setWidth] = useState<number>(640);
 
@@ -32,6 +53,22 @@ export function PDFViewer({ url, page, onPageChange }: Props) {
 
   const total = numPages ?? 0;
   const safePage = total > 0 ? Math.min(Math.max(1, page), total) : 1;
+
+  const normalizedHighlights = useMemo(
+    () => highlights.map(_normalize).filter((s) => s.length >= 5),
+    [highlights]
+  );
+
+  const customTextRenderer = useMemo(() => {
+    if (normalizedHighlights.length === 0) return undefined;
+    return ({ str }: { str: string }) => {
+      if (!str || !str.trim()) return str;
+      if (_shouldHighlight(str, normalizedHighlights)) {
+        return `<mark class="pdf-hl">${_escapeHtml(str)}</mark>`;
+      }
+      return _escapeHtml(str);
+    };
+  }, [normalizedHighlights]);
 
   return (
     <div className="flex h-full flex-col bg-white dark:bg-zinc-950">
@@ -83,6 +120,7 @@ export function PDFViewer({ url, page, onPageChange }: Props) {
             width={width}
             className="shadow-md rounded-sm overflow-hidden"
             renderAnnotationLayer={false}
+            customTextRenderer={customTextRenderer}
           />
         </Document>
       </div>

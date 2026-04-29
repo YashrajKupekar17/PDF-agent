@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.agent import GRAPH, ask
 from app.config import settings
-from app.ingest import sha256_of, verify_pdf_bytes
+from app.ingest import parse_pdf, sha256_of, verify_pdf_bytes
 from app.logging import configure_logging, get_logger
 from app.models import AgentAnswer
 from app.pipeline import ingest_and_index
@@ -114,6 +114,61 @@ def pdf_raw(doc_id: str):
     return Response(content=path.read_bytes(), media_type="application/pdf")
 
 
+# ---- Studio: overview + suggested questions on upload -----------------------
+class StudioOutput(BaseModel):
+    overview: str
+    suggested_questions: list[str]
+
+
+_STUDIO_CACHE: dict[str, dict] = {}
+
+
+def _generate_studio(doc_id: str) -> dict:
+    from langchain_openai import ChatOpenAI
+
+    path = UPLOAD_DIR / f"{doc_id}.pdf"
+    pages = parse_pdf(path)
+    full_text = "\n\n".join(t for _, t in pages if t.strip())
+    if len(full_text) > 30000:
+        full_text = full_text[:30000] + "\n\n[truncated]"
+
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        api_key=settings.openai_api_key,
+        temperature=0,
+        seed=42,
+    ).with_structured_output(StudioOutput)
+    prompt = (
+        "Read the document below and produce:\n"
+        "1. overview: 2-3 neutral sentences describing what the document is about.\n"
+        "2. suggested_questions: exactly 5 short, specific questions a reader might "
+        "ask whose answers are contained in the document. Phrase them naturally "
+        "and concretely; avoid generic prompts.\n\n"
+        f"<document>\n{full_text}\n</document>"
+    )
+    out: StudioOutput = llm.invoke(prompt)
+    return out.model_dump()
+
+
+@app.get("/studio/{doc_id}", response_model=StudioOutput)
+def studio(doc_id: str):
+    if "/" in doc_id or ".." in doc_id:
+        raise HTTPException(400, "bad doc_id")
+    path = UPLOAD_DIR / f"{doc_id}.pdf"
+    if not path.exists():
+        raise HTTPException(404, "doc not found")
+    if doc_id in _STUDIO_CACHE:
+        return _STUDIO_CACHE[doc_id]
+    try:
+        result = _generate_studio(doc_id)
+    except Exception as e:
+        log.error("studio.failed", doc_id=doc_id[:12], error=str(e)[:200])
+        raise HTTPException(500, f"studio generation failed: {e}")
+    _STUDIO_CACHE[doc_id] = result
+    log.info("studio.generated", doc_id=doc_id[:12], n_questions=len(result["suggested_questions"]))
+    return result
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     if not req.query.strip():
@@ -134,7 +189,7 @@ _STAGE_LABELS = {
 
 @app.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
-    """Server-Sent Events: emits stage updates per LangGraph node, then final answer."""
+    """SSE: emits stage updates, token deltas during `generate`, then final answer."""
     if not req.query.strip():
         raise HTTPException(400, "query is empty")
     session_id = req.session_id or str(uuid.uuid4())
@@ -151,14 +206,32 @@ async def chat_stream(req: ChatRequest):
         config = {"configurable": {"thread_id": session_id}}
         latest_answer: AgentAnswer | None = None
         try:
-            async for chunk in GRAPH.astream(
-                state, config=config, stream_mode="updates"
+            async for event in GRAPH.astream_events(
+                state, config=config, version="v2"
             ):
-                for node, update in chunk.items():
-                    label = _STAGE_LABELS.get(node, node)
-                    yield f"data: {json.dumps({'type': 'stage', 'node': node, 'label': label})}\n\n"
-                    if update and "answer" in update and update["answer"] is not None:
-                        latest_answer = update["answer"]
+                kind = event["event"]
+                name = event.get("name", "")
+                metadata = event.get("metadata", {}) or {}
+                node = metadata.get("langgraph_node")
+
+                # Stage event: when each node begins.
+                if kind == "on_chain_start" and name in _STAGE_LABELS:
+                    yield f"data: {json.dumps({'type': 'stage', 'node': name, 'label': _STAGE_LABELS[name]})}\n\n"
+
+                # Token streaming inside the `generate` node:
+                # with_structured_output streams the JSON object as `content`.
+                elif kind == "on_chat_model_stream" and node == "generate":
+                    chunk = event["data"].get("chunk")
+                    content = getattr(chunk, "content", "") or ""
+                    if content:
+                        yield f"data: {json.dumps({'type': 'args_delta', 'delta': content})}\n\n"
+
+                # Capture the final (verified) answer.
+                elif kind == "on_chain_end" and name in ("generate", "verify"):
+                    output = event["data"].get("output")
+                    if isinstance(output, dict) and output.get("answer") is not None:
+                        latest_answer = output["answer"]
+
             if latest_answer is not None:
                 payload = {
                     "type": "answer",
