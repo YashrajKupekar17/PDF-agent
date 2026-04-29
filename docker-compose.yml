@@ -1,0 +1,25 @@
+services:
+  api:
+    build: .
+    container_name: pdf-agent-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data/uploads:/app/data/uploads
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: ./ui
+    container_name: pdf-agent-ui
+    ports:
+      - "3000:3000"
+    environment:
+      # In docker network, the UI is server-rendered too — but our UI calls
+      # API from the browser, so this needs to be the host-reachable URL.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    depends_on:
+      - api
+    restart: unless-stopped

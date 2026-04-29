@@ -1,0 +1,12 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.git
+.gitignore
+.env
+.DS_Store
+data/uploads/*
+ui
+evals/ragas_report.json
+*.md
