@@ -1,0 +1,46 @@
+# Render blueprint for PDF Agent.
+# Deploy with:  https://render.com  →  New +  →  Blueprint  →  point at this repo.
+#
+# Two services share the same repo:
+#   1. pdf-agent-api  — FastAPI backend (Dockerfile at repo root)
+#   2. pdf-agent-ui   — Next.js frontend (Dockerfile at ui/)
+#
+# After the API deploys, copy its URL (e.g. https://pdf-agent-api.onrender.com)
+# into the UI service's NEXT_PUBLIC_API_URL env var, then trigger a UI rebuild
+# (Manual Deploy → Clear build cache & deploy).
+services:
+  - type: web
+    name: pdf-agent-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: COHERE_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        value: pdf-agent
+      - key: LANGSMITH_PROJECT
+        value: pdf-agent
+      - key: ENV
+        value: prod
+
+  - type: web
+    name: pdf-agent-ui
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: ui
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

@@ -2,13 +2,17 @@
 FROM node:24-alpine AS builder
 WORKDIR /app
 
+# Build-time API URL — Next.js bakes NEXT_PUBLIC_* into the bundle at build.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
 RUN npm run build
 
-# Stage 2: minimal runtime using Next.js standalone output
+# Stage 2: minimal runtime (Next.js standalone output)
 FROM node:24-alpine AS runner
 WORKDIR /app
 
