@@ -1,0 +1,83 @@
+{
+  "doc_path": "data/sample.pdf",
+  "description": "Test set for the Scaler task assignment PDF (5 pages). 5 valid + 3 out-of-scope queries.",
+  "queries": [
+    {
+      "q": "What is the date of this assignment?",
+      "type": "valid",
+      "expected_pages": [1],
+      "expected_behavior": "Should answer 22nd April 2026, citing page 1.",
+      "must_contain_any": ["22nd April 2026", "22 April", "April 2026"]
+    },
+    {
+      "q": "What submission deliverables are required?",
+      "type": "valid",
+      "expected_pages": [1, 4],
+      "expected_behavior": "Should list: short technical note, test instructions, demo video, optional deployed interface (page 1) — or Task 3 testability deliverables (page 4) are also acceptable.",
+      "must_contain_any": ["technical note", "demo video", "test instructions", "sample PDF"]
+    },
+    {
+      "q": "What evaluation criteria are listed for the narrative-to-visual story task?",
+      "type": "valid",
+      "expected_pages": [1, 2],
+      "expected_behavior": "Should list: coherence, scene breakdown quality, ambiguity handling, determinism/reproducibility.",
+      "must_contain_any": ["coherence", "scene", "determin", "reproducib"]
+    },
+    {
+      "q": "How many valid and out-of-scope queries do I need to provide for the PDF agent's test set?",
+      "type": "valid",
+      "expected_pages": [4],
+      "expected_behavior": "Should answer 5 valid + 3 out-of-scope queries (Task 3 testability on page 4).",
+      "must_contain_any": ["5 valid", "3 invalid", "out-of-scope", "5", "3"]
+    },
+    {
+      "q": "Does the assignment offer bonus credit for multilingual support?",
+      "type": "valid",
+      "expected_pages": [4],
+      "expected_behavior": "Should answer yes; bonus given for multilingual support, consistent performance across languages, and grounded non-English outputs.",
+      "must_contain_any": ["multilingual", "languages", "non-English"]
+    },
+    {
+      "q": "Who is the CEO of OpenAI?",
+      "type": "invalid",
+      "expected_behavior": "Should refuse — no information about OpenAI personnel in the document."
+    },
+    {
+      "q": "What is 17 squared?",
+      "type": "invalid",
+      "expected_behavior": "Should refuse — out-of-scope mathematical question."
+    },
+    {
+      "q": "Summarize the latest news about Indian elections.",
+      "type": "invalid",
+      "expected_behavior": "Should refuse — no political content in the document."
+    },
+    {
+      "q": "इस असाइनमेंट की तारीख क्या है?",
+      "type": "valid",
+      "language": "hi",
+      "script": "devanagari",
+      "expected_pages": [1],
+      "expected_behavior": "Hindi: 'What is the date of this assignment?' — should answer in Hindi citing the English source.",
+      "must_contain_any": ["22", "April", "अप्रैल", "तारीख"]
+    },
+    {
+      "q": "क्या मल्टीलिंगुअल सपोर्ट के लिए बोनस अंक मिलते हैं?",
+      "type": "valid",
+      "language": "hi",
+      "script": "devanagari",
+      "expected_pages": [4],
+      "expected_behavior": "Hindi: 'Are bonus marks given for multilingual support?' — should answer Yes in Hindi.",
+      "must_contain_any": ["मल्टीलिंग", "languages", "हाँ", "yes", "बोनस", "multilingual"]
+    },
+    {
+      "q": "या असाइनमेंटसाठी कोणते डिलिव्हरेबल्स आवश्यक आहेत?",
+      "type": "valid",
+      "language": "mr",
+      "script": "devanagari",
+      "expected_pages": [1, 4],
+      "expected_behavior": "Marathi: 'What deliverables are required for this assignment?' — should answer in Marathi.",
+      "must_contain_any": ["technical note", "demo", "टेक्निकल", "व्हिडिओ", "नोट", "sample"]
+    }
+  ]
+}

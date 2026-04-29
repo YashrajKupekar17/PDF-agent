@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.DS_Store
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+
+# Data: ship sample.pdf, never user uploads
+data/*
+!data/.gitkeep
+!data/sample.pdf
+
+# Node
+node_modules/
+.next/
+
